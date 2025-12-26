@@ -1060,73 +1060,102 @@ impl AbstractSyntaxTree for SingleExpression {
                 Match::analyze(match_, ty, scope).map(SingleExpressionInner::Match)?
             }
             parse::SingleExpressionInner::BinaryOp(left, op, right) => {
-                // Desugar binary operator to function call
-                // First, we need to infer the type of the left operand
-                // For now, we'll analyze both with the expected type `ty`
-                let left_analyzed = Expression::analyze(left.as_ref(), ty, scope)?;
-                let right_analyzed = Expression::analyze(right.as_ref(), &left_analyzed.ty(), scope)?;
-                
+                // First check the expected output type
                 match op {
                     parse::BinaryOp::Eq | parse::BinaryOp::Ne | 
                     parse::BinaryOp::Lt | parse::BinaryOp::Gt | 
                     parse::BinaryOp::Le | parse::BinaryOp::Ge => {
-                        // Comparison operators return bool
+                        // Comparison operators MUST return bool
                         if !ty.is_boolean() {
                             return Err(Error::ExpressionTypeMismatch(ty.clone(), ResolvedType::boolean()))
                                 .with_span(from);
                         }
                     }
                     parse::BinaryOp::And | parse::BinaryOp::Or => {
-                        // Bitwise operators maintain type
-                        if left_analyzed.ty() != right_analyzed.ty() {
-                            return Err(Error::ExpressionTypeMismatch(left_analyzed.ty().clone(), right_analyzed.ty().clone()))
-                                .with_span(from);
+                        // Bitwise operators: result type is bool or integer
+                        // bool is valid (treated as u1)
+                        if !ty.is_boolean() && ty.as_integer().is_none() {
+                            return Err(Error::ExpressionUnexpectedType(ty.clone())).with_span(from);
                         }
                     }
                 }
-                
-                // Get the AliasedType from left operand
-                let operand_ty = left_analyzed.ty();
-                // For operators, we need an AliasedType - try to convert from ResolvedType
-                let aliased_ty = if let Some(uint_ty) = operand_ty.as_integer() {
-                    AliasedType::from(uint_ty)
-                } else {
-                    // For other types, use the type itself converted to AliasedType
-                    AliasedType::boolean() // fallback - should match operand_ty in practice
+
+                // Analyze left operand - for comparisons we DON'T know operand type yet
+                // So we try to analyze with the most flexible type first
+                let left_analyzed = match op {
+                    parse::BinaryOp::Eq | parse::BinaryOp::Ne | 
+                    parse::BinaryOp::Lt | parse::BinaryOp::Gt | 
+                    parse::BinaryOp::Le | parse::BinaryOp::Ge => {
+                        // Try analyzing with u32 as fallback for comparisons
+                        Expression::analyze(left.as_ref(), &ResolvedType::from(UIntType::U32), scope)
+                            .or_else(|_| Expression::analyze(left.as_ref(), &ResolvedType::from(UIntType::U8), scope))?
+                    }
+                    parse::BinaryOp::And | parse::BinaryOp::Or => {
+                        // For bitwise, operand type must equal result type
+                        // bool stays as bool
+                        Expression::analyze(left.as_ref(), ty, scope)?
+                    }
                 };
-                
-                let call_name = match op {
-                    parse::BinaryOp::Eq => parse::CallName::Eq(aliased_ty.clone()),
-                    parse::BinaryOp::Ne => parse::CallName::Ne(aliased_ty.clone()),
-                    parse::BinaryOp::Lt => parse::CallName::Lt(aliased_ty.clone()),
-                    parse::BinaryOp::Gt => parse::CallName::Gt(aliased_ty.clone()),
-                    parse::BinaryOp::Le => parse::CallName::Le(aliased_ty.clone()),
-                    parse::BinaryOp::Ge => parse::CallName::Ge(aliased_ty.clone()),
-                    parse::BinaryOp::And => parse::CallName::And(aliased_ty.clone()),
-                    parse::BinaryOp::Or => parse::CallName::Or(aliased_ty.clone()),
+
+                // Analyze right operand with same type as left
+                let right_analyzed = Expression::analyze(right.as_ref(), left_analyzed.ty(), scope)?;
+
+                // Now create the appropriate Call with the correct jet based on type
+                let jet = match (op, left_analyzed.ty().as_integer()) {
+                    (parse::BinaryOp::Eq, Some(UIntType::U1)) => Elements::Eq1,
+                    (parse::BinaryOp::Eq, Some(UIntType::U8)) => Elements::Eq8,
+                    (parse::BinaryOp::Eq, Some(UIntType::U16)) => Elements::Eq16,
+                    (parse::BinaryOp::Eq, Some(UIntType::U32)) => Elements::Eq32,
+                    (parse::BinaryOp::Eq, Some(UIntType::U64)) => Elements::Eq64,
+                    (parse::BinaryOp::Eq, Some(UIntType::U256)) => Elements::Eq256,
+                    (parse::BinaryOp::Ne, Some(UIntType::U1)) => Elements::Eq1,
+                    (parse::BinaryOp::Ne, Some(UIntType::U8)) => Elements::Eq8,
+                    (parse::BinaryOp::Ne, Some(UIntType::U16)) => Elements::Eq16,
+                    (parse::BinaryOp::Ne, Some(UIntType::U32)) => Elements::Eq32,
+                    (parse::BinaryOp::Ne, Some(UIntType::U64)) => Elements::Eq64,
+                    (parse::BinaryOp::Ne, Some(UIntType::U256)) => Elements::Eq256,
+                    (parse::BinaryOp::Lt, Some(UIntType::U1)) => Elements::Lt8,
+                    (parse::BinaryOp::Lt, Some(UIntType::U8)) => Elements::Lt8,
+                    (parse::BinaryOp::Lt, Some(UIntType::U16)) => Elements::Lt16,
+                    (parse::BinaryOp::Lt, Some(UIntType::U32)) => Elements::Lt32,
+                    (parse::BinaryOp::Lt, Some(UIntType::U64)) => Elements::Lt64,
+                    (parse::BinaryOp::Gt, Some(UIntType::U1)) => Elements::Lt8,
+                    (parse::BinaryOp::Gt, Some(UIntType::U8)) => Elements::Lt8,
+                    (parse::BinaryOp::Gt, Some(UIntType::U16)) => Elements::Lt16,
+                    (parse::BinaryOp::Gt, Some(UIntType::U32)) => Elements::Lt32,
+                    (parse::BinaryOp::Gt, Some(UIntType::U64)) => Elements::Lt64,
+                    (parse::BinaryOp::Le, Some(UIntType::U1)) => Elements::Le8,
+                    (parse::BinaryOp::Le, Some(UIntType::U8)) => Elements::Le8,
+                    (parse::BinaryOp::Le, Some(UIntType::U16)) => Elements::Le16,
+                    (parse::BinaryOp::Le, Some(UIntType::U32)) => Elements::Le32,
+                    (parse::BinaryOp::Le, Some(UIntType::U64)) => Elements::Le64,
+                    (parse::BinaryOp::Ge, Some(UIntType::U1)) => Elements::Le8,
+                    (parse::BinaryOp::Ge, Some(UIntType::U8)) => Elements::Le8,
+                    (parse::BinaryOp::Ge, Some(UIntType::U16)) => Elements::Le16,
+                    (parse::BinaryOp::Ge, Some(UIntType::U32)) => Elements::Le32,
+                    (parse::BinaryOp::Ge, Some(UIntType::U64)) => Elements::Le64,
+                    (parse::BinaryOp::And, Some(UIntType::U1)) => Elements::And1,
+                    (parse::BinaryOp::And, None) if left_analyzed.ty().is_boolean() => Elements::And1,
+                    (parse::BinaryOp::And, Some(UIntType::U8)) => Elements::And8,
+                    (parse::BinaryOp::And, Some(UIntType::U16)) => Elements::And16,
+                    (parse::BinaryOp::And, Some(UIntType::U32)) => Elements::And32,
+                    (parse::BinaryOp::And, Some(UIntType::U64)) => Elements::And64,
+                    (parse::BinaryOp::Or, Some(UIntType::U1)) => Elements::Or1,
+                    (parse::BinaryOp::Or, None) if left_analyzed.ty().is_boolean() => Elements::Or1,
+                    (parse::BinaryOp::Or, Some(UIntType::U8)) => Elements::Or8,
+                    (parse::BinaryOp::Or, Some(UIntType::U16)) => Elements::Or16,
+                    (parse::BinaryOp::Or, Some(UIntType::U32)) => Elements::Or32,
+                    (parse::BinaryOp::Or, Some(UIntType::U64)) => Elements::Or64,
+                    _ => return Err(Error::ExpressionUnexpectedType(left_analyzed.ty().clone()))
+                        .with_span(from),
                 };
-                
-                // Convert parse::CallName to ast::CallName
-                let ast_call_name = match call_name {
-                    parse::CallName::Eq(_ty) => CallName::Jet(Elements::Eq256), // Will be specialized by jet
-                    parse::CallName::Ne(_ty) => CallName::Jet(Elements::Eq256), // Negated in compilation
-                    parse::CallName::Lt(_ty) => CallName::Jet(Elements::Lt64),
-                    parse::CallName::Gt(_ty) => CallName::Jet(Elements::Lt64), // Swapped args
-                    parse::CallName::Le(_ty) => CallName::Jet(Elements::Le64),
-                    parse::CallName::Ge(_ty) => CallName::Jet(Elements::Le64), // Swapped args
-                    parse::CallName::And(_ty) => CallName::Jet(Elements::And64),
-                    parse::CallName::Or(_ty) => CallName::Jet(Elements::Or64),
-                    // Other CallName variants should never reach here in BinaryOp context
-                    _ => unreachable!("BinaryOp should only produce comparison/bitwise operators"),
-                };
-                
-                // Create a Call expression directly with analyzed operands
+
                 let call = Call {
-                    name: ast_call_name,
+                    name: CallName::Jet(jet),
                     args: Arc::new([left_analyzed, right_analyzed]),
-                    span: from.span().clone(),
+                    span: *from.as_ref(),
                 };
-                
+
                 SingleExpressionInner::Call(call)
             }
         };

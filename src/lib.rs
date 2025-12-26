@@ -929,4 +929,34 @@ fn main() {
 }"#;
         assert!(TemplateProgram::new(func_call).is_ok());
     }
+
+    #[test]
+    fn operator_infix_comparisons() {
+        let prog_text = r#"fn main() {
+    let a: u32 = 10;
+    let b: u32 = 20;
+    let eq_result: bool = a == b;
+    let ne_result: bool = a != b;
+    let le_result: bool = a <= b;
+    let ge_result: bool = a >= b;
+    let gt_result: bool = a > b;
+    let lt_result: bool = a < b;
+}"#;
+        assert!(TemplateProgram::new(prog_text).is_ok());
+    }
+
+    #[test]
+    fn operator_infix_comparisons_full() {
+        let prog_text = r#"fn main() {
+    let a: u32 = 10;
+    let b: u32 = 20;
+    let eq_result: bool = a == b;
+    let ne_result: bool = a != b;
+    let le_result: bool = a <= b;
+    let ge_result: bool = a >= b;
+    let gt_result: bool = a > b;
+    let lt_result: bool = a < b;
+}"#;
+        assert!(TemplateProgram::new(prog_text).is_ok());
+    }
 }

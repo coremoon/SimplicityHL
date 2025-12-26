@@ -1364,6 +1364,8 @@ impl SingleExpression {
             let op = match item.as_rule() {
                 Rule::infix_eq_op => BinaryOp::Eq,
                 Rule::infix_ne_op => BinaryOp::Ne,
+                Rule::infix_lt_op => BinaryOp::Lt,
+                Rule::infix_gt_op => BinaryOp::Gt,
                 Rule::infix_le_op => BinaryOp::Le,
                 Rule::infix_ge_op => BinaryOp::Ge,
                 _ => continue,

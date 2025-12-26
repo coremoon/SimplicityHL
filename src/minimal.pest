@@ -93,18 +93,18 @@ tuple_expr        =  { "(" ~ ((expression ~ ",")+ ~ expression?)? ~ ")" }
 array_expr        =  { "[" ~ (expression ~ ("," ~ expression)* ~ ","?)? ~ "]" }
 list_expr         =  { "list![" ~ (expression ~ ("," ~ expression)* ~ ","?)? ~ "]" }
 
-// STEP 7: Infix operators (MINIMAL addition to original)
 infix_or_op       = @{ "||" }
 infix_and_op      = @{ "&&" }
 infix_eq_op       = @{ "==" }
 infix_ne_op       = @{ "!=" }
 infix_le_op       = @{ "<=" }
 infix_ge_op       = @{ ">=" }
+infix_lt_op       = @{ "<" ~ !("=" | "<") }
+infix_gt_op       = @{ ">" ~ !("=" | ">") }
 
 primary_expr      =  { left_expr | right_expr | none_expr | some_expr | false_expr | true_expr | call_expr | match_expr | tuple_expr | array_expr | list_expr | bin_literal | hex_literal | dec_literal | witness_expr | param_expr | variable_expr | "(" ~ expression ~ ")" }
 
-// STEP 7: Operator precedence (lowest to highest)
-comparison_expr   =  { primary_expr ~ ((infix_eq_op | infix_ne_op | infix_le_op | infix_ge_op) ~ primary_expr)* }
+comparison_expr   =  { primary_expr ~ ((infix_eq_op | infix_ne_op | infix_le_op | infix_ge_op | infix_lt_op | infix_gt_op) ~ primary_expr)* }
 logical_and_expr  =  { comparison_expr ~ (infix_and_op ~ comparison_expr)* }
 logical_or_expr   =  { logical_and_expr ~ (infix_or_op ~ logical_and_expr)* }
 
