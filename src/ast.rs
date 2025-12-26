@@ -1383,6 +1383,46 @@ impl AbstractSyntaxTree for CallName {
                     _ => Err(Error::FunctionNotLoopable(name.clone())).with_span(from),
                 }
             }
+            // Comparison operators (desugared to Jets)
+            parse::CallName::Eq(_ty) => {
+                // Type is resolved in Call::analyze when used
+                // For now, just resolve the type parameter
+                Err(Error::CannotParse("Eq requires CallName resolution".to_string()))
+                    .with_span(from)
+            }
+            parse::CallName::Ne(_ty) => {
+                Err(Error::CannotParse("Ne requires CallName resolution".to_string()))
+                    .with_span(from)
+            }
+            parse::CallName::Lt(_ty) => {
+                Err(Error::CannotParse("Lt requires CallName resolution".to_string()))
+                    .with_span(from)
+            }
+            parse::CallName::Gt(_ty) => {
+                Err(Error::CannotParse("Gt requires CallName resolution".to_string()))
+                    .with_span(from)
+            }
+            parse::CallName::Le(_ty) => {
+                Err(Error::CannotParse("Le requires CallName resolution".to_string()))
+                    .with_span(from)
+            }
+            parse::CallName::Ge(_ty) => {
+                Err(Error::CannotParse("Ge requires CallName resolution".to_string()))
+                    .with_span(from)
+            }
+            // Logical operators (desugared to Jets)
+            parse::CallName::And(_ty) => {
+                Err(Error::CannotParse("And requires CallName resolution".to_string()))
+                    .with_span(from)
+            }
+            parse::CallName::Or(_ty) => {
+                Err(Error::CannotParse("Or requires CallName resolution".to_string()))
+                    .with_span(from)
+            }
+            parse::CallName::Not(_ty) => {
+                Err(Error::CannotParse("Not requires CallName resolution".to_string()))
+                    .with_span(from)
+            }
         }
     }
 }

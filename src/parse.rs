@@ -214,6 +214,24 @@ pub enum CallName {
     ArrayFold(FunctionName, NonZeroUsize),
     /// Loop over the given function a bounded number of times until it returns success.
     ForWhile(FunctionName),
+    /// Equality comparison (`==`), desugars to `jet::Eq*`.
+    Eq(AliasedType),
+    /// Inequality comparison (`!=`), desugars to `!(jet::Eq*)`.
+    Ne(AliasedType),
+    /// Less-than comparison (`<`), desugars to `jet::Lt*`.
+    Lt(AliasedType),
+    /// Greater-than comparison (`>`), desugars to `jet::Lt*(b, a)` (swapped).
+    Gt(AliasedType),
+    /// Less-than-or-equal comparison (`<=`), desugars to `jet::Le*`.
+    Le(AliasedType),
+    /// Greater-than-or-equal comparison (`>=`), desugars to `jet::Le*(b, a)` (swapped).
+    Ge(AliasedType),
+    /// Bitwise AND (`&&`), desugars to `jet::And*`.
+    And(AliasedType),
+    /// Bitwise OR (`||`), desugars to `jet::Or*`.
+    Or(AliasedType),
+    /// Bitwise NOT (`!`), desugars to `jet::Complement*`. Unary operator.
+    Not(AliasedType),
 }
 
 /// A type alias.
@@ -807,7 +825,15 @@ impl fmt::Display for CallName {
             CallName::Fold(name, bound) => write!(f, "fold::<{name}, {bound}>"),
             CallName::ArrayFold(name, size) => write!(f, "array_fold::<{name}, {size}>"),
             CallName::ForWhile(name) => write!(f, "for_while::<{name}>"),
-        }
+CallName::Eq(_ty) => write!(f, "jet::Eq_"),
+            CallName::Ne(_ty) => write!(f, "jet::Ne_"),
+            CallName::Lt(_ty) => write!(f, "jet::Lt_"),
+            CallName::Gt(_ty) => write!(f, "jet::Gt_"),
+            CallName::Le(_ty) => write!(f, "jet::Le_"),
+            CallName::Ge(_ty) => write!(f, "jet::Ge_"),
+            CallName::And(_ty) => write!(f, "jet::And_"),
+            CallName::Or(_ty) => write!(f, "jet::Or_"),
+            CallName::Not(_ty) => write!(f, "jet::Not_"),        }
     }
 }
 
