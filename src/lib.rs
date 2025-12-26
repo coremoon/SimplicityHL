@@ -852,4 +852,81 @@ fn main() {
 }"#;
         assert!(TemplateProgram::new(prog_text).is_ok());
     }
+
+    #[test]
+    fn operator_infix_logical() {
+        let prog_text = r#"fn main() {
+    let a: bool = true;
+    let b: bool = false;
+    let and_result: bool = a && b;
+    let or_result: bool = a || b;
+}"#;
+        assert!(TemplateProgram::new(prog_text).is_ok());
+    }
+
+    #[test]
+    fn operator_function_call_lt_gt() {
+        // Note: < and > only available via function-call syntax (no infix)
+        let prog_text = r#"fn main() {
+    let a: u32 = 10;
+    let b: u32 = 20;
+    let less_than: bool = lt::<u32>(a, b);
+    let greater_than: bool = gt::<u32>(b, a);
+}"#;
+        assert!(TemplateProgram::new(prog_text).is_ok());
+    }
+
+    #[test]
+    fn operator_function_call_not() {
+        // Note: not is unary and only available via function-call syntax
+        let prog_text = r#"fn main() {
+    let a: u32 = 255;
+    let result: u32 = not::<u32>(a);
+}"#;
+        assert!(TemplateProgram::new(prog_text).is_ok());
+    }
+
+    #[test]
+    fn operator_prefix_not_via_function() {
+        // Prefix NOT (!) not yet supported - use function-call syntax: not::<T>(a)
+        let prog_text = r#"fn main() {
+    let a: u32 = 255;
+    let result: u32 = not::<u32>(a);
+}"#;
+        assert!(TemplateProgram::new(prog_text).is_ok());
+    }
+
+    #[test]
+    fn operator_infix_syntax_example() {
+        // Infix operator syntax examples (grammar supports these)
+        // These demonstrate the new infix syntax introduced in Step 7
+        
+        // Logical: a && b, a || b
+        let prog_text = r#"fn main() {
+    let x: bool = true;
+    let y: bool = false;
+    let and_result: bool = x && y;
+    let or_result: bool = x || y;
+}"#;
+        assert!(TemplateProgram::new(prog_text).is_ok());
+    }
+
+    #[test]
+    fn operator_infix_examples_documentation() {
+        // Examples showing supported syntax
+        let func_call = r#"fn main() {
+    let a: u32 = 10;
+    let b: u32 = 20;
+    let eq_result: bool = eq::<u32>(a, b);
+    let ne_result: bool = ne::<u32>(a, b);
+    let le_result: bool = le::<u32>(a, b);
+    let ge_result: bool = ge::<u32>(a, b);
+    let lt_result: bool = lt::<u32>(a, b);
+    let gt_result: bool = gt::<u32>(a, b);
+    let and_result: u32 = and::<u32>(15, 7);
+    let or_result: u32 = or::<u32>(15, 7);
+    let not_result: u32 = not::<u32>(255);
+}"#;
+        assert!(TemplateProgram::new(func_call).is_ok());
+    }
 }
