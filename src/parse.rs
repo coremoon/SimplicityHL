@@ -825,7 +825,7 @@ impl fmt::Display for CallName {
             CallName::Fold(name, bound) => write!(f, "fold::<{name}, {bound}>"),
             CallName::ArrayFold(name, size) => write!(f, "array_fold::<{name}, {size}>"),
             CallName::ForWhile(name) => write!(f, "for_while::<{name}>"),
-CallName::Eq(_ty) => write!(f, "jet::Eq_"),
+            CallName::Eq(_ty) => write!(f, "jet::Eq_"),
             CallName::Ne(_ty) => write!(f, "jet::Ne_"),
             CallName::Lt(_ty) => write!(f, "jet::Lt_"),
             CallName::Gt(_ty) => write!(f, "jet::Gt_"),
@@ -1129,6 +1129,42 @@ impl PestParse for CallName {
                 let mut it = pair.into_inner();
                 let name = FunctionName::parse(it.next().unwrap())?;
                 Ok(Self::ForWhile(name))
+            }
+            Rule::eq => {
+                let inner = pair.into_inner().next().unwrap();
+                AliasedType::parse(inner).map(Self::Eq)
+            }
+            Rule::ne => {
+                let inner = pair.into_inner().next().unwrap();
+                AliasedType::parse(inner).map(Self::Ne)
+            }
+            Rule::lt => {
+                let inner = pair.into_inner().next().unwrap();
+                AliasedType::parse(inner).map(Self::Lt)
+            }
+            Rule::gt => {
+                let inner = pair.into_inner().next().unwrap();
+                AliasedType::parse(inner).map(Self::Gt)
+            }
+            Rule::le => {
+                let inner = pair.into_inner().next().unwrap();
+                AliasedType::parse(inner).map(Self::Le)
+            }
+            Rule::ge => {
+                let inner = pair.into_inner().next().unwrap();
+                AliasedType::parse(inner).map(Self::Ge)
+            }
+            Rule::and_op => {
+                let inner = pair.into_inner().next().unwrap();
+                AliasedType::parse(inner).map(Self::And)
+            }
+            Rule::or_op => {
+                let inner = pair.into_inner().next().unwrap();
+                AliasedType::parse(inner).map(Self::Or)
+            }
+            Rule::not_op => {
+                let inner = pair.into_inner().next().unwrap();
+                AliasedType::parse(inner).map(Self::Not)
             }
             Rule::function_name => FunctionName::parse(pair).map(Self::Custom),
             _ => panic!("Corrupt grammar"),
