@@ -664,4 +664,87 @@ fn main() {
             .with_witness_values(WitnessValues::default())
             .assert_run_success();
     }
+
+    // Operator compilation tests - verify operators parse and type-check correctly
+    // Note: Equality operators return bool, not the input type!
+    #[test]
+    fn operator_eq_parses_and_compiles() {
+        // eq::<T> returns bool, not T
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = eq::<u8>(1, 1); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = eq::<u32>(1, 2); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = eq::<u64>(1, 1); }"#).is_ok());
+    }
+
+    #[test]
+    fn operator_ne_parses_and_compiles() {
+        // ne::<T> returns bool, not T
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = ne::<u8>(1, 2); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = ne::<u32>(1, 1); }"#).is_ok());
+    }
+
+    #[test]
+    fn operator_lt_parses_and_compiles() {
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = lt::<u8>(1, 2); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = lt::<u32>(1, 2); }"#).is_ok());
+    }
+
+    #[test]
+    fn operator_gt_parses_and_compiles() {
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = gt::<u32>(2, 1); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = gt::<u8>(5, 3); }"#).is_ok());
+    }
+
+    #[test]
+    fn operator_le_parses_and_compiles() {
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = le::<u8>(1, 1); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = le::<u64>(100, 200); }"#).is_ok());
+    }
+
+    #[test]
+    fn operator_ge_parses_and_compiles() {
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = ge::<u32>(2, 1); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let x: bool = ge::<u8>(10, 5); }"#).is_ok());
+    }
+
+    #[test]
+    fn operator_and_parses_and_compiles() {
+        // and::<T> returns T
+        assert!(TemplateProgram::new(r#"fn main() { let x: u8 = and::<u8>(5, 3); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let x: u32 = and::<u32>(255, 15); }"#).is_ok());
+    }
+
+    #[test]
+    fn operator_or_parses_and_compiles() {
+        // or::<T> returns T
+        assert!(TemplateProgram::new(r#"fn main() { let x: u8 = or::<u8>(5, 3); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let x: u32 = or::<u32>(1, 2); }"#).is_ok());
+    }
+
+    #[test]
+    fn operator_not_parses_and_compiles() {
+        // not::<T> returns T
+        assert!(TemplateProgram::new(r#"fn main() { let x: u8 = not::<u8>(255); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let x: u32 = not::<u32>(0); }"#).is_ok());
+    }
+
+    #[test]
+    fn operator_type_consistency() {
+        // Verify correct type signatures
+        assert!(TemplateProgram::new(r#"fn main() { let _: bool = eq::<u32>(1, 2); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let _: bool = lt::<u8>(1, 2); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let _: u32 = and::<u32>(1, 2); }"#).is_ok());
+        assert!(TemplateProgram::new(r#"fn main() { let _: u64 = not::<u64>(0); }"#).is_ok());
+    }
+
+    #[test]
+    fn operator_combined_parsing() {
+        let prog_text = r#"fn main() {
+    let a: u32 = 10;
+    let b: u32 = 20;
+    let c: bool = lt::<u32>(a, b);
+    let d: bool = ne::<u32>(a, b);
+    let e: u32 = and::<u32>(15, 7);
+}"#;
+        assert!(TemplateProgram::new(prog_text).is_ok());
+    }
 }
