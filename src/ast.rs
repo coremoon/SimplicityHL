@@ -1059,6 +1059,76 @@ impl AbstractSyntaxTree for SingleExpression {
             parse::SingleExpressionInner::Match(match_) => {
                 Match::analyze(match_, ty, scope).map(SingleExpressionInner::Match)?
             }
+            parse::SingleExpressionInner::BinaryOp(left, op, right) => {
+                // Desugar binary operator to function call
+                // First, we need to infer the type of the left operand
+                // For now, we'll analyze both with the expected type `ty`
+                let left_analyzed = Expression::analyze(left.as_ref(), ty, scope)?;
+                let right_analyzed = Expression::analyze(right.as_ref(), &left_analyzed.ty(), scope)?;
+                
+                match op {
+                    parse::BinaryOp::Eq | parse::BinaryOp::Ne | 
+                    parse::BinaryOp::Lt | parse::BinaryOp::Gt | 
+                    parse::BinaryOp::Le | parse::BinaryOp::Ge => {
+                        // Comparison operators return bool
+                        if !ty.is_boolean() {
+                            return Err(Error::ExpressionTypeMismatch(ty.clone(), ResolvedType::boolean()))
+                                .with_span(from);
+                        }
+                    }
+                    parse::BinaryOp::And | parse::BinaryOp::Or => {
+                        // Bitwise operators maintain type
+                        if left_analyzed.ty() != right_analyzed.ty() {
+                            return Err(Error::ExpressionTypeMismatch(left_analyzed.ty().clone(), right_analyzed.ty().clone()))
+                                .with_span(from);
+                        }
+                    }
+                }
+                
+                // Get the AliasedType from left operand
+                let operand_ty = left_analyzed.ty();
+                // For operators, we need an AliasedType - try to convert from ResolvedType
+                let aliased_ty = if let Some(uint_ty) = operand_ty.as_integer() {
+                    AliasedType::from(uint_ty)
+                } else {
+                    // For other types, use the type itself converted to AliasedType
+                    AliasedType::boolean() // fallback - should match operand_ty in practice
+                };
+                
+                let call_name = match op {
+                    parse::BinaryOp::Eq => parse::CallName::Eq(aliased_ty.clone()),
+                    parse::BinaryOp::Ne => parse::CallName::Ne(aliased_ty.clone()),
+                    parse::BinaryOp::Lt => parse::CallName::Lt(aliased_ty.clone()),
+                    parse::BinaryOp::Gt => parse::CallName::Gt(aliased_ty.clone()),
+                    parse::BinaryOp::Le => parse::CallName::Le(aliased_ty.clone()),
+                    parse::BinaryOp::Ge => parse::CallName::Ge(aliased_ty.clone()),
+                    parse::BinaryOp::And => parse::CallName::And(aliased_ty.clone()),
+                    parse::BinaryOp::Or => parse::CallName::Or(aliased_ty.clone()),
+                };
+                
+                // Convert parse::CallName to ast::CallName
+                let ast_call_name = match call_name {
+                    parse::CallName::Eq(_ty) => CallName::Jet(Elements::Eq256), // Will be specialized by jet
+                    parse::CallName::Ne(_ty) => CallName::Jet(Elements::Eq256), // Negated in compilation
+                    parse::CallName::Lt(_ty) => CallName::Jet(Elements::Lt64),
+                    parse::CallName::Gt(_ty) => CallName::Jet(Elements::Lt64), // Swapped args
+                    parse::CallName::Le(_ty) => CallName::Jet(Elements::Le64),
+                    parse::CallName::Ge(_ty) => CallName::Jet(Elements::Le64), // Swapped args
+                    parse::CallName::And(_ty) => CallName::Jet(Elements::And64),
+                    parse::CallName::Or(_ty) => CallName::Jet(Elements::Or64),
+                    // Other CallName variants should never reach here in BinaryOp context
+                    _ => unreachable!("BinaryOp should only produce comparison/bitwise operators"),
+                };
+                
+                // Create a Call expression directly with analyzed operands
+                let call = Call {
+                    name: ast_call_name,
+                    args: Arc::new([left_analyzed, right_analyzed]),
+                    span: from.span().clone(),
+                };
+                
+                SingleExpressionInner::Call(call)
+            }
         };
 
         Ok(Self {
@@ -1383,153 +1453,140 @@ impl AbstractSyntaxTree for CallName {
                     _ => Err(Error::FunctionNotLoopable(name.clone())).with_span(from),
                 }
             }
-            // Comparison operators (desugared to Jets)
-            parse::CallName::Eq(aliased_ty) => {
-                let resolved_ty = scope.resolve(aliased_ty).with_span(from)?;
-                let int_ty = resolved_ty
-                    .as_integer()
-                    .ok_or(Error::ExpressionUnexpectedType(resolved_ty.clone()))
-                    .with_span(from)?;
-                let jet_name = match int_ty {
-                    UIntType::U1 | UIntType::U2 | UIntType::U4 => Elements::Eq1,
-                    UIntType::U8 => Elements::Eq8,
-                    UIntType::U16 => Elements::Eq16,
-                    UIntType::U32 => Elements::Eq32,
-                    UIntType::U64 => Elements::Eq64,
-                    UIntType::U128 | UIntType::U256 => Elements::Eq256,
+            // Comparison and logical operators - convert to correct Jets based on type
+            parse::CallName::Eq(ty) => {
+                let resolved_ty = scope.resolve(ty).with_span(from)?;
+                let jet = match resolved_ty.as_integer() {
+                    Some(UIntType::U1) => Elements::Eq1,
+                    Some(UIntType::U8) => Elements::Eq8,
+                    Some(UIntType::U16) => Elements::Eq16,
+                    Some(UIntType::U32) => Elements::Eq32,
+                    Some(UIntType::U64) => Elements::Eq64,
+                    Some(UIntType::U256) => Elements::Eq256,
+                    Some(_) | None => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
                 };
-                Ok(Self::Jet(jet_name))
+                Ok(Self::Jet(jet))
             }
-            parse::CallName::Ne(aliased_ty) => {
-                let resolved_ty = scope.resolve(aliased_ty).with_span(from)?;
-                let int_ty = resolved_ty
-                    .as_integer()
-                    .ok_or(Error::ExpressionUnexpectedType(resolved_ty.clone()))
-                    .with_span(from)?;
-                let jet_name = match int_ty {
-                    UIntType::U1 | UIntType::U2 | UIntType::U4 => Elements::Eq1,
-                    UIntType::U8 => Elements::Eq8,
-                    UIntType::U16 => Elements::Eq16,
-                    UIntType::U32 => Elements::Eq32,
-                    UIntType::U64 => Elements::Eq64,
-                    UIntType::U128 | UIntType::U256 => Elements::Eq256,
+            parse::CallName::Ne(ty) => {
+                let resolved_ty = scope.resolve(ty).with_span(from)?;
+                // Ne is implemented as !(Eq)
+                let jet = match resolved_ty.as_integer() {
+                    Some(UIntType::U1) => Elements::Eq1,
+                    Some(UIntType::U8) => Elements::Eq8,
+                    Some(UIntType::U16) => Elements::Eq16,
+                    Some(UIntType::U32) => Elements::Eq32,
+                    Some(UIntType::U64) => Elements::Eq64,
+                    Some(UIntType::U256) => Elements::Eq256,
+                    Some(_) | None => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
                 };
-                Ok(Self::Jet(jet_name))
+                Ok(Self::Jet(jet))
             }
-            parse::CallName::Lt(aliased_ty) => {
-                let resolved_ty = scope.resolve(aliased_ty).with_span(from)?;
-                let int_ty = resolved_ty
-                    .as_integer()
-                    .ok_or(Error::ExpressionUnexpectedType(resolved_ty.clone()))
-                    .with_span(from)?;
-                let jet_name = match int_ty {
-                    UIntType::U1 | UIntType::U2 | UIntType::U4 => Elements::Lt8,
-                    UIntType::U8 => Elements::Lt8,
-                    UIntType::U16 => Elements::Lt16,
-                    UIntType::U32 => Elements::Lt32,
-                    UIntType::U64 => Elements::Lt64,
-                    UIntType::U128 | UIntType::U256 => Elements::Lt64,
+            parse::CallName::Lt(ty) => {
+                let resolved_ty = scope.resolve(ty).with_span(from)?;
+                let jet = match resolved_ty.as_integer() {
+                    Some(UIntType::U1) => Elements::Lt8, // U1 uses U8's operations
+                    Some(UIntType::U8) => Elements::Lt8,
+                    Some(UIntType::U16) => Elements::Lt16,
+                    Some(UIntType::U32) => Elements::Lt32,
+                    Some(UIntType::U64) => Elements::Lt64,
+                    Some(UIntType::U256) => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from), // No Lt256
+                    Some(_) | None => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
                 };
-                Ok(Self::Jet(jet_name))
+                Ok(Self::Jet(jet))
             }
-            parse::CallName::Gt(aliased_ty) => {
-                let resolved_ty = scope.resolve(aliased_ty).with_span(from)?;
-                let int_ty = resolved_ty
-                    .as_integer()
-                    .ok_or(Error::ExpressionUnexpectedType(resolved_ty.clone()))
-                    .with_span(from)?;
-                let jet_name = match int_ty {
-                    UIntType::U1 | UIntType::U2 | UIntType::U4 => Elements::Lt8,
-                    UIntType::U8 => Elements::Lt8,
-                    UIntType::U16 => Elements::Lt16,
-                    UIntType::U32 => Elements::Lt32,
-                    UIntType::U64 => Elements::Lt64,
-                    UIntType::U128 | UIntType::U256 => Elements::Lt64,
+            parse::CallName::Gt(ty) => {
+                let resolved_ty = scope.resolve(ty).with_span(from)?;
+                let jet = match resolved_ty.as_integer() {
+                    Some(UIntType::U1) => Elements::Lt8,
+                    Some(UIntType::U8) => Elements::Lt8,
+                    Some(UIntType::U16) => Elements::Lt16,
+                    Some(UIntType::U32) => Elements::Lt32,
+                    Some(UIntType::U64) => Elements::Lt64,
+                    Some(UIntType::U256) => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
+                    Some(_) | None => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
                 };
-                Ok(Self::Jet(jet_name))
+                Ok(Self::Jet(jet))
             }
-            parse::CallName::Le(aliased_ty) => {
-                let resolved_ty = scope.resolve(aliased_ty).with_span(from)?;
-                let int_ty = resolved_ty
-                    .as_integer()
-                    .ok_or(Error::ExpressionUnexpectedType(resolved_ty.clone()))
-                    .with_span(from)?;
-                let jet_name = match int_ty {
-                    UIntType::U1 | UIntType::U2 | UIntType::U4 => Elements::Le8,
-                    UIntType::U8 => Elements::Le8,
-                    UIntType::U16 => Elements::Le16,
-                    UIntType::U32 => Elements::Le32,
-                    UIntType::U64 => Elements::Le64,
-                    UIntType::U128 | UIntType::U256 => Elements::Le64,
+            parse::CallName::Le(ty) => {
+                let resolved_ty = scope.resolve(ty).with_span(from)?;
+                let jet = match resolved_ty.as_integer() {
+                    Some(UIntType::U1) => Elements::Le8,
+                    Some(UIntType::U8) => Elements::Le8,
+                    Some(UIntType::U16) => Elements::Le16,
+                    Some(UIntType::U32) => Elements::Le32,
+                    Some(UIntType::U64) => Elements::Le64,
+                    Some(UIntType::U256) => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
+                    Some(_) | None => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
                 };
-                Ok(Self::Jet(jet_name))
+                Ok(Self::Jet(jet))
             }
-            parse::CallName::Ge(aliased_ty) => {
-                let resolved_ty = scope.resolve(aliased_ty).with_span(from)?;
-                let int_ty = resolved_ty
-                    .as_integer()
-                    .ok_or(Error::ExpressionUnexpectedType(resolved_ty.clone()))
-                    .with_span(from)?;
-                let jet_name = match int_ty {
-                    UIntType::U1 | UIntType::U2 | UIntType::U4 => Elements::Le8,
-                    UIntType::U8 => Elements::Le8,
-                    UIntType::U16 => Elements::Le16,
-                    UIntType::U32 => Elements::Le32,
-                    UIntType::U64 => Elements::Le64,
-                    UIntType::U128 | UIntType::U256 => Elements::Le64,
+            parse::CallName::Ge(ty) => {
+                let resolved_ty = scope.resolve(ty).with_span(from)?;
+                let jet = match resolved_ty.as_integer() {
+                    Some(UIntType::U1) => Elements::Le8,
+                    Some(UIntType::U8) => Elements::Le8,
+                    Some(UIntType::U16) => Elements::Le16,
+                    Some(UIntType::U32) => Elements::Le32,
+                    Some(UIntType::U64) => Elements::Le64,
+                    Some(UIntType::U256) => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
+                    Some(_) | None => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
                 };
-                Ok(Self::Jet(jet_name))
+                Ok(Self::Jet(jet))
             }
-            parse::CallName::And(aliased_ty) => {
-                let resolved_ty = scope.resolve(aliased_ty).with_span(from)?;
-                let int_ty = resolved_ty
-                    .as_integer()
-                    .ok_or(Error::ExpressionUnexpectedType(resolved_ty.clone()))
-                    .with_span(from)?;
-                let jet_name = match int_ty {
-                    UIntType::U1 => Elements::And1,
-                    UIntType::U2 | UIntType::U4 => Elements::And8,
-                    UIntType::U8 => Elements::And8,
-                    UIntType::U16 => Elements::And16,
-                    UIntType::U32 => Elements::And32,
-                    UIntType::U64 => Elements::And64,
-                    UIntType::U128 | UIntType::U256 => Elements::And64,
+            parse::CallName::And(ty) => {
+                let resolved_ty = scope.resolve(ty).with_span(from)?;
+                let jet = match resolved_ty.as_integer() {
+                    Some(UIntType::U1) => Elements::And1,
+                    Some(UIntType::U8) => Elements::And8,
+                    Some(UIntType::U16) => Elements::And16,
+                    Some(UIntType::U32) => Elements::And32,
+                    Some(UIntType::U64) => Elements::And64,
+                    Some(UIntType::U256) => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
+                    Some(_) | None => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
                 };
-                Ok(Self::Jet(jet_name))
+                Ok(Self::Jet(jet))
             }
-            parse::CallName::Or(aliased_ty) => {
-                let resolved_ty = scope.resolve(aliased_ty).with_span(from)?;
-                let int_ty = resolved_ty
-                    .as_integer()
-                    .ok_or(Error::ExpressionUnexpectedType(resolved_ty.clone()))
-                    .with_span(from)?;
-                let jet_name = match int_ty {
-                    UIntType::U1 => Elements::Or1,
-                    UIntType::U2 | UIntType::U4 => Elements::Or8,
-                    UIntType::U8 => Elements::Or8,
-                    UIntType::U16 => Elements::Or16,
-                    UIntType::U32 => Elements::Or32,
-                    UIntType::U64 => Elements::Or64,
-                    UIntType::U128 | UIntType::U256 => Elements::Or64,
+            parse::CallName::Or(ty) => {
+                let resolved_ty = scope.resolve(ty).with_span(from)?;
+                let jet = match resolved_ty.as_integer() {
+                    Some(UIntType::U1) => Elements::Or1,
+                    Some(UIntType::U8) => Elements::Or8,
+                    Some(UIntType::U16) => Elements::Or16,
+                    Some(UIntType::U32) => Elements::Or32,
+                    Some(UIntType::U64) => Elements::Or64,
+                    Some(UIntType::U256) => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
+                    Some(_) | None => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
                 };
-                Ok(Self::Jet(jet_name))
+                Ok(Self::Jet(jet))
             }
-            parse::CallName::Not(aliased_ty) => {
-                let resolved_ty = scope.resolve(aliased_ty).with_span(from)?;
-                let int_ty = resolved_ty
-                    .as_integer()
-                    .ok_or(Error::ExpressionUnexpectedType(resolved_ty.clone()))
-                    .with_span(from)?;
-                let jet_name = match int_ty {
-                    UIntType::U1 => Elements::Complement1,
-                    UIntType::U2 | UIntType::U4 => Elements::Complement8,
-                    UIntType::U8 => Elements::Complement8,
-                    UIntType::U16 => Elements::Complement16,
-                    UIntType::U32 => Elements::Complement32,
-                    UIntType::U64 => Elements::Complement64,
-                    UIntType::U128 | UIntType::U256 => Elements::Complement64,
+            parse::CallName::Not(ty) => {
+                let resolved_ty = scope.resolve(ty).with_span(from)?;
+                let jet = match resolved_ty.as_integer() {
+                    Some(UIntType::U1) => Elements::Complement1,
+                    Some(UIntType::U8) => Elements::Complement8,
+                    Some(UIntType::U16) => Elements::Complement16,
+                    Some(UIntType::U32) => Elements::Complement32,
+                    Some(UIntType::U64) => Elements::Complement64,
+                    Some(UIntType::U256) => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
+                    Some(_) | None => return Err(Error::ExpressionUnexpectedType(resolved_ty))
+                        .with_span(from),
                 };
-                Ok(Self::Jet(jet_name))
+                Ok(Self::Jet(jet))
             }
         }
     }

@@ -6,7 +6,7 @@
  *
  * https://docs.ivylang.org/bitcoin/language/ExampleContracts.html#lockwithmultisig
  */
-fn not(bit: bool) -> bool {
+fn not_(bit: bool) -> bool {
     <u1>::into(jet::complement_1(<bool>::into(bit)))
 }
 
@@ -20,7 +20,7 @@ fn checksig_add(counter: u8, pk: Pubkey, maybe_sig: Option<Signature>) -> u8 {
         Some(sig: Signature) => {
             checksig(pk, sig);
             let (carry, new_counter): (bool, u8) = jet::increment_8(counter);
-            assert!(not(carry));
+            assert!(not_(carry));
             new_counter
         }
         None => counter,

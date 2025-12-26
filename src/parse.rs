@@ -22,6 +22,50 @@ use crate::str::{
 };
 use crate::types::{AliasedType, BuiltinAlias, TypeConstructible, UIntType};
 
+/// Binary operator for infix expressions
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub enum BinaryOp {
+    /// Equality: ==
+    Eq,
+    /// Not equal: !=
+    Ne,
+    /// Less than: <
+    Lt,
+    /// Greater than: >
+    Gt,
+    /// Less or equal: <=
+    Le,
+    /// Greater or equal: >=
+    Ge,
+    /// Bitwise AND: &&
+    And,
+    /// Bitwise OR: ||
+    Or,
+}
+
+impl BinaryOp {
+    /// Convert BinaryOp to its string representation
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Eq => "==",
+            Self::Ne => "!=",
+            Self::Lt => "<",
+            Self::Gt => ">",
+            Self::Le => "<=",
+            Self::Ge => ">=",
+            Self::And => "&&",
+            Self::Or => "||",
+        }
+    }
+}
+
+impl fmt::Display for BinaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 #[derive(Parser)]
 #[grammar = "minimal.pest"]
 struct IdentParser;
@@ -365,6 +409,8 @@ pub enum SingleExpressionInner {
     ///
     /// The exclusive upper bound on the list size is not known at this point
     List(Arc<[Expression]>),
+    /// Binary infix expression: left op right
+    BinaryOp(Box<Expression>, BinaryOp, Box<Expression>),
 }
 
 /// Match expression.
@@ -651,6 +697,10 @@ impl TreeLike for ExprTree<'_> {
                 S::Tuple(elements) | S::Array(elements) | S::List(elements) => {
                     Tree::Nary(elements.iter().map(Self::Expression).collect())
                 }
+                S::BinaryOp(left, _, right) => Tree::Nary(Arc::new([
+                    Self::Expression(left),
+                    Self::Expression(right),
+                ]))
             },
             Self::Call(call) => Tree::Nary(call.args().iter().map(Self::Expression).collect()),
             Self::Match(match_) => Tree::Nary(Arc::new([
@@ -721,7 +771,7 @@ impl fmt::Display for ExprTree<'_> {
                             write!(f, ")")?;
                         }
                     },
-                    S::Call(..) | S::Match(..) => {}
+                    S::Call(..) | S::Match(..) | S::BinaryOp(..) => {}
                     S::Tuple(tuple) => {
                         if data.n_children_yielded == 0 {
                             write!(f, "(")?;
@@ -833,7 +883,8 @@ impl fmt::Display for CallName {
             CallName::Ge(_ty) => write!(f, "jet::Ge_"),
             CallName::And(_ty) => write!(f, "jet::And_"),
             CallName::Or(_ty) => write!(f, "jet::Or_"),
-            CallName::Not(_ty) => write!(f, "jet::Not_"),        }
+            CallName::Not(_ty) => write!(f, "jet::Not_"),
+        }
     }
 }
 
@@ -1130,6 +1181,10 @@ impl PestParse for CallName {
                 let name = FunctionName::parse(it.next().unwrap())?;
                 Ok(Self::ForWhile(name))
             }
+            Rule::function_name => {
+                let name = FunctionName::parse(pair)?;
+                Ok(Self::Custom(name))
+            }
             Rule::eq => {
                 let inner = pair.into_inner().next().unwrap();
                 AliasedType::parse(inner).map(Self::Eq)
@@ -1166,8 +1221,8 @@ impl PestParse for CallName {
                 let inner = pair.into_inner().next().unwrap();
                 AliasedType::parse(inner).map(Self::Not)
             }
-            Rule::function_name => FunctionName::parse(pair).map(Self::Custom),
             _ => panic!("Corrupt grammar"),
+
         }
     }
 }
@@ -1237,74 +1292,175 @@ impl PestParse for SingleExpression {
         let span = Span::from(&pair);
         let inner_pair = pair.into_inner().next().unwrap();
 
-        let inner = match inner_pair.as_rule() {
-            Rule::left_expr => {
-                let l = inner_pair.into_inner().next().unwrap();
-                Expression::parse(l)
-                    .map(Arc::new)
-                    .map(Either::Left)
-                    .map(SingleExpressionInner::Either)?
-            }
-            Rule::right_expr => {
-                let r = inner_pair.into_inner().next().unwrap();
-                Expression::parse(r)
-                    .map(Arc::new)
-                    .map(Either::Right)
-                    .map(SingleExpressionInner::Either)?
-            }
-            Rule::none_expr => SingleExpressionInner::Option(None),
-            Rule::some_expr => {
-                let r = inner_pair.into_inner().next().unwrap();
-                Expression::parse(r)
-                    .map(Arc::new)
-                    .map(Some)
-                    .map(SingleExpressionInner::Option)?
-            }
-            Rule::false_expr => SingleExpressionInner::Boolean(false),
-            Rule::true_expr => SingleExpressionInner::Boolean(true),
-            Rule::call_expr => SingleExpressionInner::Call(Call::parse(inner_pair)?),
-            Rule::bin_literal => Binary::parse(inner_pair).map(SingleExpressionInner::Binary)?,
-            Rule::hex_literal => {
-                Hexadecimal::parse(inner_pair).map(SingleExpressionInner::Hexadecimal)?
-            }
-            Rule::dec_literal => Decimal::parse(inner_pair).map(SingleExpressionInner::Decimal)?,
-            Rule::witness_expr => SingleExpressionInner::Witness(WitnessName::parse(
-                inner_pair.into_inner().next().unwrap(),
-            )?),
-            Rule::param_expr => SingleExpressionInner::Parameter(WitnessName::parse(
-                inner_pair.into_inner().next().unwrap(),
-            )?),
-            Rule::variable_expr => {
-                let identifier_pair = inner_pair.into_inner().next().unwrap();
-                SingleExpressionInner::Variable(Identifier::parse(identifier_pair)?)
-            }
-            Rule::expression => {
-                SingleExpressionInner::Expression(Expression::parse(inner_pair).map(Arc::new)?)
-            }
-            Rule::match_expr => Match::parse(inner_pair).map(SingleExpressionInner::Match)?,
-            Rule::tuple_expr => inner_pair
-                .clone()
-                .into_inner()
-                .map(Expression::parse)
-                .collect::<Result<Arc<[Expression]>, _>>()
-                .map(SingleExpressionInner::Tuple)?,
-            Rule::array_expr => inner_pair
-                .clone()
-                .into_inner()
-                .map(Expression::parse)
-                .collect::<Result<Arc<[Expression]>, _>>()
-                .map(SingleExpressionInner::Array)?,
-            Rule::list_expr => {
-                let elements = inner_pair
-                    .into_inner()
-                    .map(|inner| Expression::parse(inner))
-                    .collect::<Result<Arc<_>, _>>()?;
-                SingleExpressionInner::List(elements)
-            }
-            _ => unreachable!("Corrupt grammar"),
-        };
+        // single_expression just wraps logical_or_expr
+        let inner = Self::parse_logical_or(inner_pair)?;
 
         Ok(SingleExpression { inner, span })
+    }
+}
+
+impl SingleExpression {
+    /// Parse logical OR expression: a || b || c
+    fn parse_logical_or(pair: pest::iterators::Pair<Rule>) -> Result<SingleExpressionInner, RichError> {
+        let span = Span::from(&pair);
+        let mut items = pair.into_inner();
+        let mut left = Self::parse_logical_and(items.next().unwrap())?;
+        
+        while let Some(item) = items.next() {
+            match item.as_rule() {
+                Rule::infix_or_op => {
+                    let right_pair = items.next().unwrap();
+                    let right = Self::parse_logical_and(right_pair)?;
+                    
+                    let left_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: left, span }), span };
+                    let right_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: right, span }), span };
+                    
+                    left = SingleExpressionInner::BinaryOp(
+                        Box::new(left_expr),
+                        BinaryOp::Or,
+                        Box::new(right_expr),
+                    );
+                }
+                _ => {}
+            }
+        }
+        Ok(left)
+    }
+
+    /// Parse logical AND expression: a && b && c
+    fn parse_logical_and(pair: pest::iterators::Pair<Rule>) -> Result<SingleExpressionInner, RichError> {
+        let span = Span::from(&pair);
+        let mut items = pair.into_inner();
+        let mut left = Self::parse_comparison(items.next().unwrap())?;
+        
+        while let Some(item) = items.next() {
+            match item.as_rule() {
+                Rule::infix_and_op => {
+                    let right_pair = items.next().unwrap();
+                    let right = Self::parse_comparison(right_pair)?;
+                    
+                    let left_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: left, span }), span };
+                    let right_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: right, span }), span };
+                    
+                    left = SingleExpressionInner::BinaryOp(
+                        Box::new(left_expr),
+                        BinaryOp::And,
+                        Box::new(right_expr),
+                    );
+                }
+                _ => {}
+            }
+        }
+        Ok(left)
+    }
+
+    /// Parse comparison expression: a == b, a < b, etc
+    fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<SingleExpressionInner, RichError> {
+        let span = Span::from(&pair);
+        let mut items = pair.into_inner();
+        let mut left = Self::parse_primary(items.next().unwrap())?;
+        
+        while let Some(item) = items.next() {
+            let op = match item.as_rule() {
+                Rule::infix_eq_op => BinaryOp::Eq,
+                Rule::infix_ne_op => BinaryOp::Ne,
+                Rule::infix_le_op => BinaryOp::Le,
+                Rule::infix_ge_op => BinaryOp::Ge,
+                _ => continue,
+            };
+            let right_pair = items.next().unwrap();
+            let right = Self::parse_primary(right_pair)?;
+            
+            let left_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: left, span }), span };
+            let right_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: right, span }), span };
+            
+            left = SingleExpressionInner::BinaryOp(
+                Box::new(left_expr),
+                op,
+                Box::new(right_expr),
+            );
+        }
+        Ok(left)
+    }
+
+    /// Parse primary expression (the base case)
+    fn parse_primary(pair: pest::iterators::Pair<Rule>) -> Result<SingleExpressionInner, RichError> {
+        let span = Span::from(&pair);
+        for item in pair.into_inner() {
+            match item.as_rule() {
+                Rule::left_expr => {
+                    let l = item.into_inner().next().unwrap();
+                    return Expression::parse(l)
+                        .map(Arc::new)
+                        .map(Either::Left)
+                        .map(SingleExpressionInner::Either);
+                }
+                Rule::right_expr => {
+                    let r = item.into_inner().next().unwrap();
+                    return Expression::parse(r)
+                        .map(Arc::new)
+                        .map(Either::Right)
+                        .map(SingleExpressionInner::Either);
+                }
+                Rule::none_expr => return Ok(SingleExpressionInner::Option(None)),
+                Rule::some_expr => {
+                    let r = item.into_inner().next().unwrap();
+                    return Expression::parse(r)
+                        .map(Arc::new)
+                        .map(Some)
+                        .map(SingleExpressionInner::Option);
+                }
+                Rule::false_expr => return Ok(SingleExpressionInner::Boolean(false)),
+                Rule::true_expr => return Ok(SingleExpressionInner::Boolean(true)),
+                Rule::call_expr => return Call::parse(item).map(SingleExpressionInner::Call),
+                Rule::match_expr => return Match::parse(item).map(SingleExpressionInner::Match),
+                Rule::tuple_expr => {
+                    return item
+                        .clone()
+                        .into_inner()
+                        .map(Expression::parse)
+                        .collect::<Result<Arc<[Expression]>, _>>()
+                        .map(SingleExpressionInner::Tuple);
+                }
+                Rule::array_expr => {
+                    return item
+                        .clone()
+                        .into_inner()
+                        .map(Expression::parse)
+                        .collect::<Result<Arc<[Expression]>, _>>()
+                        .map(SingleExpressionInner::Array);
+                }
+                Rule::list_expr => {
+                    let elements = item
+                        .into_inner()
+                        .map(|inner| Expression::parse(inner))
+                        .collect::<Result<Arc<_>, _>>()?;
+                    return Ok(SingleExpressionInner::List(elements));
+                }
+                Rule::bin_literal => return Binary::parse(item).map(SingleExpressionInner::Binary),
+                Rule::hex_literal => return Hexadecimal::parse(item).map(SingleExpressionInner::Hexadecimal),
+                Rule::dec_literal => return Decimal::parse(item).map(SingleExpressionInner::Decimal),
+                Rule::witness_expr => {
+                    return Ok(SingleExpressionInner::Witness(WitnessName::parse(
+                        item.into_inner().next().unwrap(),
+                    )?));
+                }
+                Rule::param_expr => {
+                    return Ok(SingleExpressionInner::Parameter(WitnessName::parse(
+                        item.into_inner().next().unwrap(),
+                    )?));
+                }
+                Rule::variable_expr => {
+                    let identifier_pair = item.into_inner().next().unwrap();
+                    return Ok(SingleExpressionInner::Variable(Identifier::parse(identifier_pair)?));
+                }
+                Rule::expression => {
+                    return Ok(SingleExpressionInner::Expression(Expression::parse(item).map(Arc::new)?));
+                }
+                _ => {}
+            }
+        }
+        Err(Error::CannotParse("primary expression".to_string())).with_span(span)
     }
 }
 
