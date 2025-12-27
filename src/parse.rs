@@ -66,6 +66,27 @@ impl fmt::Display for BinaryOp {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+   pub enum UnaryOp {
+       /// Bitwise NOT: !
+       Not,
+   }
+
+impl UnaryOp {
+    /// Convert UnaryOp to its string representation
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            UnaryOp::Not => "!",
+        }
+    }
+}
+
+impl fmt::Display for UnaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.to_str())
+    }
+}
+
 #[derive(Parser)]
 #[grammar = "minimal.pest"]
 struct IdentParser;
@@ -411,6 +432,8 @@ pub enum SingleExpressionInner {
     List(Arc<[Expression]>),
     /// Binary infix expression: left op right
     BinaryOp(Box<Expression>, BinaryOp, Box<Expression>),
+    /// Unary operation (prefix operator)
+    UnaryOp(Box<Expression>, UnaryOp),
 }
 
 /// Match expression.
@@ -700,7 +723,8 @@ impl TreeLike for ExprTree<'_> {
                 S::BinaryOp(left, _, right) => Tree::Nary(Arc::new([
                     Self::Expression(left),
                     Self::Expression(right),
-                ]))
+                ])),
+                S::UnaryOp(expr, _) => Tree::Unary(Self::Expression(expr)),
             },
             Self::Call(call) => Tree::Nary(call.args().iter().map(Self::Expression).collect()),
             Self::Match(match_) => Tree::Nary(Arc::new([
@@ -771,7 +795,7 @@ impl fmt::Display for ExprTree<'_> {
                             write!(f, ")")?;
                         }
                     },
-                    S::Call(..) | S::Match(..) | S::BinaryOp(..) => {}
+                    S::Call(..) | S::Match(..) | S::BinaryOp(..) | S::UnaryOp(..) => {}
                     S::Tuple(tuple) => {
                         if data.n_children_yielded == 0 {
                             write!(f, "(")?;
@@ -1358,7 +1382,7 @@ impl SingleExpression {
     fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<SingleExpressionInner, RichError> {
         let span = Span::from(&pair);
         let mut items = pair.into_inner();
-        let mut left = Self::parse_primary(items.next().unwrap())?;
+        let mut left = Self::parse_unary(items.next().unwrap())?;
         
         while let Some(item) = items.next() {
             let op = match item.as_rule() {
@@ -1371,7 +1395,7 @@ impl SingleExpression {
                 _ => continue,
             };
             let right_pair = items.next().unwrap();
-            let right = Self::parse_primary(right_pair)?;
+            let right = Self::parse_unary(right_pair)?;
             
             let left_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: left, span }), span };
             let right_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: right, span }), span };
@@ -1383,6 +1407,44 @@ impl SingleExpression {
             );
         }
         Ok(left)
+    }
+
+    /// Parse unary expression (prefix operators)
+    fn parse_unary(pair: pest::iterators::Pair<Rule>) -> Result<SingleExpressionInner, RichError> {
+        let span = Span::from(&pair);
+        let mut items = pair.into_inner();
+        let mut nots = Vec::new();
+        
+        // Count all the ! operators
+        while let Some(item) = items.next() {
+            match item.as_rule() {
+                Rule::prefix_not_op => nots.push(UnaryOp::Not),
+                _ => {
+                    // This should be the primary_expr
+                    let mut result = Self::parse_primary(item)?;
+                    
+                    // Apply all the NOT operators in reverse order (right to left)
+                    for not_op in nots.into_iter().rev() {
+                        let expr = Expression { 
+                            inner: ExpressionInner::Single(SingleExpression { inner: result, span }), 
+                            span 
+                        };
+                        result = SingleExpressionInner::UnaryOp(Box::new(expr), not_op);
+                    }
+                    
+                    return Ok(result);
+                }
+            }
+        }
+        
+        // If we get here with no primary_expr, just return the last result
+        // This handles cases like just "!" which shouldn't happen in valid code
+        Err(RichError::from(pest::error::Error::new_from_pos(
+            pest::error::ErrorVariant::CustomError {
+                message: "Invalid unary expression".to_string(),
+            },
+            pest::Position::from_start(""),
+        )))
     }
 
     /// Parse primary expression (the base case)

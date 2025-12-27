@@ -1158,6 +1158,30 @@ impl AbstractSyntaxTree for SingleExpression {
 
                 SingleExpressionInner::Call(call)
             }
+            parse::SingleExpressionInner::UnaryOp(expr, op) => {
+                // Analyze the inner expression
+                let expr_analyzed = Expression::analyze(expr.as_ref(), ty, scope)?;
+                
+                // Create the appropriate jet for the unary operator
+                let jet = match (op, expr_analyzed.ty().as_integer()) {
+                    (parse::UnaryOp::Not, Some(UIntType::U1)) => Elements::Complement1,
+                    (parse::UnaryOp::Not, Some(UIntType::U8)) => Elements::Complement8,
+                    (parse::UnaryOp::Not, Some(UIntType::U16)) => Elements::Complement16,
+                    (parse::UnaryOp::Not, Some(UIntType::U32)) => Elements::Complement32,
+                    (parse::UnaryOp::Not, Some(UIntType::U64)) => Elements::Complement64,
+                    (parse::UnaryOp::Not, None) if expr_analyzed.ty().is_boolean() => Elements::Complement1,
+                    _ => return Err(Error::ExpressionUnexpectedType(expr_analyzed.ty().clone()))
+                        .with_span(from),
+                };
+
+                let call = Call {
+                    name: CallName::Jet(jet),
+                    args: Arc::new([expr_analyzed]),
+                    span: *from.as_ref(),
+                };
+
+                SingleExpressionInner::Call(call)
+            }
         };
 
         Ok(Self {

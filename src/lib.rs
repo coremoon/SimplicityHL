@@ -959,4 +959,95 @@ fn main() {
 }"#;
         assert!(TemplateProgram::new(prog_text).is_ok());
     }
+
+#[test]
+    fn operator_prefix_not() {
+        // Test 1: Simple NOT with bool
+        let prog_text1 = r#"fn main() {
+    let bit: bool = true;
+    let not_bit: bool = !bit;
+}"#;
+        assert!(TemplateProgram::new(prog_text1).is_ok());
+
+        // Test 2: NOT with u8
+        let prog_text2 = r#"fn main() {
+    let a: u8 = 10;
+    let not_a: u8 = !a;
+}"#;
+        assert!(TemplateProgram::new(prog_text2).is_ok());
+
+        // Test 3: NOT with u16
+        let prog_text3 = r#"fn main() {
+    let b: u16 = 100;
+    let not_b: u16 = !b;
+}"#;
+        assert!(TemplateProgram::new(prog_text3).is_ok());
+
+        // Test 4: NOT with u32
+        let prog_text4 = r#"fn main() {
+    let c: u32 = 20;
+    let not_c: u32 = !c;
+}"#;
+        assert!(TemplateProgram::new(prog_text4).is_ok());
+
+        // Test 5: NOT with u64
+        let prog_text5 = r#"fn main() {
+    let d: u64 = 50;
+    let not_d: u64 = !d;
+}"#;
+        assert!(TemplateProgram::new(prog_text5).is_ok());
+
+        // Test 6: Double NOT
+        let prog_text6 = r#"fn main() {
+    let x: bool = true;
+    let double_not: bool = !!x;
+}"#;
+        assert!(TemplateProgram::new(prog_text6).is_ok());
+
+        // Test 7: Triple NOT
+        let prog_text7 = r#"fn main() {
+    let y: u8 = 5;
+    let triple_not: u8 = !!!y;
+}"#;
+        assert!(TemplateProgram::new(prog_text7).is_ok());
+
+        // Test 8: NOT in comparison
+        let prog_text8 = r#"fn main() {
+    let a: u32 = 10;
+    let b: u32 = 20;
+    let result: bool = !a == b;
+}"#;
+        assert!(TemplateProgram::new(prog_text8).is_ok());
+
+        // Test 9: NOT with logical AND
+        let prog_text9 = r#"fn main() {
+    let a: bool = true;
+    let b: bool = false;
+    let result: bool = !a && b;
+}"#;
+        assert!(TemplateProgram::new(prog_text9).is_ok());
+
+        // Test 10: NOT with logical OR
+        let prog_text10 = r#"fn main() {
+    let x: bool = true;
+    let y: bool = false;
+    let result: bool = !x || y;
+}"#;
+        assert!(TemplateProgram::new(prog_text10).is_ok());
+
+        // Test 11: NOT with all types
+        let prog_text11 = r#"fn main() {
+    let bit: bool = false;
+    let not_bit: bool = !bit;
+    let a: u8 = 10;
+    let not_a: u8 = !a;
+    let b: u16 = 100;
+    let not_b: u16 = !b;
+    let c: u32 = 20;
+    let not_c: u32 = !c;
+    let d: u64 = 50;
+    let not_d: u64 = !d;
+}"#;
+        assert!(TemplateProgram::new(prog_text11).is_ok());
+    }
 }
