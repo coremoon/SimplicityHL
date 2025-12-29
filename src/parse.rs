@@ -1327,124 +1327,166 @@ impl SingleExpression {
     /// Parse logical OR expression: a || b || c
     fn parse_logical_or(pair: pest::iterators::Pair<Rule>) -> Result<SingleExpressionInner, RichError> {
         let span = Span::from(&pair);
-        let mut items = pair.into_inner();
-        let mut left = Self::parse_logical_and(items.next().unwrap())?;
-        
-        while let Some(item) = items.next() {
-            match item.as_rule() {
-                Rule::infix_or_op => {
-                    let right_pair = items.next().unwrap();
-                    let right = Self::parse_logical_and(right_pair)?;
-                    
-                    let left_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: left, span }), span };
-                    let right_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: right, span }), span };
-                    
-                    left = SingleExpressionInner::BinaryOp(
-                        Box::new(left_expr),
-                        BinaryOp::Or,
-                        Box::new(right_expr),
-                    );
+        match pair.as_rule() {
+            Rule::logical_or_expr => {
+                let mut items = pair.into_inner();
+                let mut left = Self::parse_logical_and(items.next().unwrap())?;
+                
+                while let Some(item) = items.next() {
+                    if matches!(item.as_rule(), Rule::infix_or_op) {
+                        let right_pair = items.next().unwrap();
+                        let right = Self::parse_logical_and(right_pair)?;
+                        
+                        let left_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: left, span }), span };
+                        let right_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: right, span }), span };
+                        
+                        left = SingleExpressionInner::BinaryOp(
+                            Box::new(left_expr),
+                            BinaryOp::Or,
+                            Box::new(right_expr),
+                        );
+                    }
                 }
-                _ => {}
+                Ok(left)
             }
+            _ => Self::parse_logical_and(pair),
         }
-        Ok(left)
     }
 
     /// Parse logical AND expression: a && b && c
     fn parse_logical_and(pair: pest::iterators::Pair<Rule>) -> Result<SingleExpressionInner, RichError> {
         let span = Span::from(&pair);
-        let mut items = pair.into_inner();
-        let mut left = Self::parse_comparison(items.next().unwrap())?;
-        
-        while let Some(item) = items.next() {
-            match item.as_rule() {
-                Rule::infix_and_op => {
+        match pair.as_rule() {
+            Rule::logical_and_expr => {
+                let mut items = pair.into_inner();
+                let mut left = Self::parse_equality(items.next().unwrap())?;
+                
+                while let Some(item) = items.next() {
+                    if matches!(item.as_rule(), Rule::infix_and_op) {
+                        let right_pair = items.next().unwrap();
+                        let right = Self::parse_equality(right_pair)?;
+                        
+                        let left_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: left, span }), span };
+                        let right_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: right, span }), span };
+                        
+                        left = SingleExpressionInner::BinaryOp(
+                            Box::new(left_expr),
+                            BinaryOp::And,
+                            Box::new(right_expr),
+                        );
+                    }
+                }
+                Ok(left)
+            }
+            _ => Self::parse_equality(pair),
+        }
+    }
+
+    /// Parse comparison expression: a == b, a < b, etc
+    /// Parse equality expression: a == b, a != b
+    fn parse_equality(pair: pest::iterators::Pair<Rule>) -> Result<SingleExpressionInner, RichError> {
+        let span = Span::from(&pair);
+        match pair.as_rule() {
+            Rule::equality_expr => {
+                let mut items = pair.into_inner();
+                let mut left = Self::parse_relational(items.next().unwrap())?;
+                
+                while let Some(item) = items.next() {
+                    let op = match item.as_rule() {
+                        Rule::infix_eq_op => BinaryOp::Eq,
+                        Rule::infix_ne_op => BinaryOp::Ne,
+                        _ => continue,
+                    };
                     let right_pair = items.next().unwrap();
-                    let right = Self::parse_comparison(right_pair)?;
+                    let right = Self::parse_relational(right_pair)?;
                     
                     let left_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: left, span }), span };
                     let right_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: right, span }), span };
                     
                     left = SingleExpressionInner::BinaryOp(
                         Box::new(left_expr),
-                        BinaryOp::And,
+                        op,
                         Box::new(right_expr),
                     );
                 }
-                _ => {}
+                Ok(left)
             }
+            _ => Self::parse_relational(pair),
         }
-        Ok(left)
     }
 
-    /// Parse comparison expression: a == b, a < b, etc
-    fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<SingleExpressionInner, RichError> {
+    /// Parse relational expression: a < b, a > b, etc
+    fn parse_relational(pair: pest::iterators::Pair<Rule>) -> Result<SingleExpressionInner, RichError> {
         let span = Span::from(&pair);
-        let mut items = pair.into_inner();
-        let mut left = Self::parse_unary(items.next().unwrap())?;
-        
-        while let Some(item) = items.next() {
-            let op = match item.as_rule() {
-                Rule::infix_eq_op => BinaryOp::Eq,
-                Rule::infix_ne_op => BinaryOp::Ne,
-                Rule::infix_lt_op => BinaryOp::Lt,
-                Rule::infix_gt_op => BinaryOp::Gt,
-                Rule::infix_le_op => BinaryOp::Le,
-                Rule::infix_ge_op => BinaryOp::Ge,
-                _ => continue,
-            };
-            let right_pair = items.next().unwrap();
-            let right = Self::parse_unary(right_pair)?;
-            
-            let left_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: left, span }), span };
-            let right_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: right, span }), span };
-            
-            left = SingleExpressionInner::BinaryOp(
-                Box::new(left_expr),
-                op,
-                Box::new(right_expr),
-            );
+        match pair.as_rule() {
+            Rule::relational_expr => {
+                let mut items = pair.into_inner();
+                let mut left = Self::parse_unary(items.next().unwrap())?;
+                
+                while let Some(item) = items.next() {
+                    let op = match item.as_rule() {
+                        Rule::infix_lt_op => BinaryOp::Lt,
+                        Rule::infix_gt_op => BinaryOp::Gt,
+                        Rule::infix_le_op => BinaryOp::Le,
+                        Rule::infix_ge_op => BinaryOp::Ge,
+                        _ => continue,
+                    };
+                    let right_pair = items.next().unwrap();
+                    let right = Self::parse_unary(right_pair)?;
+                    
+                    let left_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: left, span }), span };
+                    let right_expr = Expression { inner: ExpressionInner::Single(SingleExpression { inner: right, span }), span };
+                    
+                    left = SingleExpressionInner::BinaryOp(
+                        Box::new(left_expr),
+                        op,
+                        Box::new(right_expr),
+                    );
+                }
+                Ok(left)
+            }
+            _ => Self::parse_unary(pair),
         }
-        Ok(left)
     }
 
     /// Parse unary expression (prefix operators)
     fn parse_unary(pair: pest::iterators::Pair<Rule>) -> Result<SingleExpressionInner, RichError> {
         let span = Span::from(&pair);
-        let mut items = pair.into_inner();
-        let mut nots = Vec::new();
-        
-        // Count all the ! operators
-        while let Some(item) = items.next() {
-            match item.as_rule() {
-                Rule::prefix_not_op => nots.push(UnaryOp::Not),
-                _ => {
-                    // This should be the primary_expr
-                    let mut result = Self::parse_primary(item)?;
-                    
-                    // Apply all the NOT operators in reverse order (right to left)
-                    for not_op in nots.into_iter().rev() {
+        match pair.as_rule() {
+            Rule::unary_expr => {
+                let mut items = pair.into_inner();
+                
+                // Check for NOT operator
+                match items.next() {
+                    Some(item) if matches!(item.as_rule(), Rule::prefix_not_op) => {
+                        // We have a NOT operator, next item should be unary_expr
+                        let right_pair = items.next().unwrap();
+                        // Recursively parse the rest (could be more NOTs or a primary expr)
+                        let inner = Self::parse_unary(right_pair)?;
+                        
                         let expr = Expression { 
-                            inner: ExpressionInner::Single(SingleExpression { inner: result, span }), 
+                            inner: ExpressionInner::Single(SingleExpression { inner, span }), 
                             span 
                         };
-                        result = SingleExpressionInner::UnaryOp(Box::new(expr), not_op);
+                        Ok(SingleExpressionInner::UnaryOp(Box::new(expr), UnaryOp::Not))
                     }
-                    
-                    return Ok(result);
+                    Some(item) => {
+                        // No NOT operator, just parse as primary
+                        Self::parse_primary(item)
+                    }
+                    None => {
+                        // Empty, should not happen
+                        Err(RichError::from(pest::error::Error::new_from_pos(
+                            pest::error::ErrorVariant::CustomError {
+                                message: "Empty unary expression".to_string(),
+                            },
+                            pest::Position::from_start(""),
+                        )))
+                    }
                 }
             }
+            _ => Self::parse_primary(pair),
         }
-        
-        // If we get here with no primary_expr, just return the last result
-        // This handles cases like just "!" which shouldn't happen in valid code
-        Err(RichError::from(pest::error::Error::new_from_pos(
-            pest::error::ErrorVariant::CustomError {
-                message: "Invalid unary expression".to_string(),
-            },
-            pest::Position::from_start(""),
-        )))
     }
 
     /// Parse primary expression (the base case)

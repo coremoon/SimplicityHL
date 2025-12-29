@@ -80,9 +80,11 @@ not_op            =  { "not::<" ~ ty ~ ">" }
 call_name         =  { jet | unwrap_left | unwrap_right | is_none | unwrap | assert | panic | type_cast | debug | array_fold | fold | for_while | eq | ne | lt | gt | le | ge | and_op | or_op | not_op | function_name }
 call_args         =  { "(" ~ (expression ~ ("," ~ expression)*)? ~ ")" }
 call_expr         =  { call_name ~ call_args }
-dec_literal       = @{ (ASCII_DIGIT | "_")+ }
-bin_literal       = @{ "0b" ~ (ASCII_BIN_DIGIT | "_")+ }
-hex_literal       = @{ "0x" ~ (ASCII_HEX_DIGIT | "_")+ }
+
+dec_literal = @{ (ASCII_DIGIT | "_")+ ~ unsigned_type? }
+bin_literal = @{ "0b" ~ (ASCII_BIN_DIGIT | "_")+ ~ unsigned_type? }
+hex_literal = @{ "0x" ~ (ASCII_HEX_DIGIT | "_")+ ~ unsigned_type? }
+
 witness_expr      = ${ "witness::" ~ witness_name }
 param_expr        = ${ "param::" ~ witness_name }
 variable_expr     =  { identifier }
@@ -93,22 +95,51 @@ tuple_expr        =  { "(" ~ ((expression ~ ",")+ ~ expression?)? ~ ")" }
 array_expr        =  { "[" ~ (expression ~ ("," ~ expression)* ~ ","?)? ~ "]" }
 list_expr         =  { "list![" ~ (expression ~ ("," ~ expression)* ~ ","?)? ~ "]" }
 
+// Logical operators
 infix_or_op       = @{ "||" }
 infix_and_op      = @{ "&&" }
+
+// Equality operators (higher precedence than logical, lower than relational)
 infix_eq_op       = @{ "==" }
 infix_ne_op       = @{ "!=" }
+equality_ops      =  @{ infix_eq_op | infix_ne_op }
+
+// Relational operators (highest precedence among comparisons)
 infix_le_op       = @{ "<=" }
 infix_ge_op       = @{ ">=" }
+// IMPROVED: Explicit negative lookaheads for < and >
+// Reserved: <<, <=, >, >=, >>
 infix_lt_op       = @{ "<" ~ !("=" | "<") }
 infix_gt_op       = @{ ">" ~ !("=" | ">") }
+relational_ops    =  @{ infix_le_op | infix_ge_op | infix_lt_op | infix_gt_op }
+
+// Recommended: Recursive structure for full control
+// Semantics: !x OK, !!x OK (parsed as !(!(x))), associativity right
+// This variant allows: !x, !!x, !!!x all work correctly
+prefix_not_op     = @{ "!" }
+unary_expr        =  { (prefix_not_op ~ unary_expr) | primary_expr }
 
 primary_expr      =  { left_expr | right_expr | none_expr | some_expr | false_expr | true_expr | call_expr | match_expr | tuple_expr | array_expr | list_expr | bin_literal | hex_literal | dec_literal | witness_expr | param_expr | variable_expr | "(" ~ expression ~ ")" }
 
-prefix_not_op     = @{ "!" }
-unary_expr        =  { (prefix_not_op)* ~ primary_expr }
+// Unary operators (highest precedence among binary)
+// unary_expr defined above with recursive NOT
 
-comparison_expr   =  { unary_expr ~ ((infix_eq_op | infix_ne_op | infix_le_op | infix_ge_op | infix_lt_op | infix_gt_op) ~ unary_expr)* }
-logical_and_expr  =  { comparison_expr ~ (infix_and_op ~ comparison_expr)* }
+// Relational Operators (Level 3)
+// Allows: a < b, a <= b, etc.
+// Allows chain: a < b < c becomes (a < b) < c
+relational_expr   =  { unary_expr ~ ((relational_ops ~ unary_expr)*) }
+
+// Equality Operators (Level 2)
+// Allows: a == b, a != b
+// Allows chain: a == b == c becomes (a == b) == c
+equality_expr     =  { relational_expr ~ ((equality_ops ~ relational_expr)*) }
+
+// Logical AND (Level 1, lower precedence)
+// Allows: a && b && c
+logical_and_expr  =  { equality_expr ~ (infix_and_op ~ equality_expr)* }
+
+// Logical OR (Level 0, lowest precedence)
+// Allows: a || b || c
 logical_or_expr   =  { logical_and_expr ~ (infix_or_op ~ logical_and_expr)* }
 
 single_expression =  { logical_or_expr }
